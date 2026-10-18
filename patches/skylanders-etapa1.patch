@@ -76,7 +76,7 @@ diff --git a/Source/Core/DolphinNoGUI/PS4Skylanders.cpp b/Source/Core/DolphinNoG
 new file mode 100644
 --- /dev/null
 +++ b/Source/Core/DolphinNoGUI/PS4Skylanders.cpp
-@@ -0,0 +1,102 @@
+@@ -0,0 +1,101 @@
 +// Copyright 2026 Dolphin PS4 contributors
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +
@@ -122,11 +122,10 @@ new file mode 100644
 +// LoadSkyfilePath()).
 +bool PlaceFigure(const std::string& path)
 +{
-+  // The figure object must outlive its time on the portal, so it is deliberately never freed
-+  // (at most MAX_FIGURES small objects per game start).
-+  auto* figure = new IOS::HLE::USB::SkylanderFigure(path);
++  // LoadSkylander(std::unique_ptr<SkylanderFigure>) takes over the figure (and its open file).
++  auto figure = std::make_unique<IOS::HLE::USB::SkylanderFigure>(path);
 +  auto& portal = Core::System::GetInstance().GetSkylanderPortal();
-+  const u8 slot = portal.LoadSkylander(*figure);
++  const u8 slot = portal.LoadSkylander(std::move(figure));
 +  return slot != 0xFF;
 +}
 +}  // namespace
