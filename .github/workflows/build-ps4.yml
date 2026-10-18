@@ -72,7 +72,7 @@ jobs:
           mkdir -p ~/dolphinps4-build/src/mesa
           curl -fL https://archive.mesa3d.org/mesa-26.0.8.tar.xz -o /tmp/mesa.tar.xz
           tar -xf /tmp/mesa.tar.xz -C ~/dolphinps4-build/src/mesa --strip-components=1
-          cd ~/dolphinps4-build/src/mesa
+          cd ~/dolphinps4-build/src/mesa && git init -q && git add -A >/dev/null && git -c user.name=ci -c user.email=ci@ci commit -qm base
           git apply "$GITHUB_WORKSPACE/patches/mesa-ps4.patch"
           cd "$GITHUB_WORKSPACE"
           scripts/build-mesa.sh setup
