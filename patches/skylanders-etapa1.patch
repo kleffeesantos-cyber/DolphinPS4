@@ -1,0 +1,186 @@
+diff --git a/Source/Core/DolphinNoGUI/CMakeLists.txt b/Source/Core/DolphinNoGUI/CMakeLists.txt
+--- a/Source/Core/DolphinNoGUI/CMakeLists.txt
++++ b/Source/Core/DolphinNoGUI/CMakeLists.txt
+@@ -200,6 +200,7 @@
+   target_sources(dolphin-nogui PRIVATE PS4XMB.cpp PS4XMBDisplay.cpp PS4IngameMenu.cpp PS4Settings.cpp
+     PS4Controls.cpp PS4Cheats.cpp PS4Covers.cpp PS4Glyphs.cpp PS4Lang.cpp PS4MemoryCards.cpp PS4Net.cpp PS4Updater.cpp
+     ${CMAKE_SOURCE_DIR}/Externals/imgui/imgui/backends/imgui_impl_vulkan.cpp)
++  target_sources(dolphin-nogui PRIVATE PS4Skylanders.cpp)
+   set_source_files_properties(
+     ${CMAKE_SOURCE_DIR}/Externals/imgui/imgui/backends/imgui_impl_vulkan.cpp
+     PROPERTIES COMPILE_DEFINITIONS IMGUI_IMPL_VULKAN_NO_PROTOTYPES)
+diff --git a/Source/Core/DolphinNoGUI/MainNoGUI.cpp b/Source/Core/DolphinNoGUI/MainNoGUI.cpp
+--- a/Source/Core/DolphinNoGUI/MainNoGUI.cpp
++++ b/Source/Core/DolphinNoGUI/MainNoGUI.cpp
+@@ -300,6 +300,7 @@
+ #include <sys/stat.h>
+ #include "Common/FileUtil.h"
+ #include "DolphinNoGUI/PS4Settings.h"
++#include "DolphinNoGUI/PS4Skylanders.h"
+ #endif
+ 
+ #include <OptionParser.h>
+diff --git a/Source/Core/DolphinNoGUI/MainNoGUI.cpp b/Source/Core/DolphinNoGUI/MainNoGUI.cpp
+--- a/Source/Core/DolphinNoGUI/MainNoGUI.cpp
++++ b/Source/Core/DolphinNoGUI/MainNoGUI.cpp
+@@ -400,6 +400,12 @@
+     Platform::BootTrace((std::string("core state: ") +
+                          (index >= 0 && index < 5 ? names[index] : "?")).c_str());
+ #endif
++#ifdef __ORBIS__
++    if (state == Core::State::Running)
++      PS4Skylanders::OnCoreRunning();
++    else if (state == Core::State::Uninitialized)
++      PS4Skylanders::OnCoreStopped();
++#endif
+     if (state == Core::State::Uninitialized)
+       s_platform->Stop();
+   });
+diff --git a/Source/Core/DolphinNoGUI/MainNoGUI.cpp b/Source/Core/DolphinNoGUI/MainNoGUI.cpp
+--- a/Source/Core/DolphinNoGUI/MainNoGUI.cpp
++++ b/Source/Core/DolphinNoGUI/MainNoGUI.cpp
+@@ -500,6 +500,8 @@
+       }
+     }
+   }
++  if (boot)
++    PS4Skylanders::Enable(*boot);
+   Platform::BootTrace("BootCore");
+ #endif
+   if (!BootManager::BootCore(Core::System::GetInstance(), std::move(boot), wsi))
+diff --git a/Source/Core/DolphinNoGUI/PS4Skylanders.h b/Source/Core/DolphinNoGUI/PS4Skylanders.h
+new file mode 100644
+--- /dev/null
++++ b/Source/Core/DolphinNoGUI/PS4Skylanders.h
+@@ -0,0 +1,19 @@
++// Copyright 2026 Dolphin PS4 contributors
++// SPDX-License-Identifier: GPL-2.0-or-later
++
++#pragma once
++
++struct BootParameters;
++
++// Emulated Skylanders Portal for the PS4 port (no Qt window here, so no "Tools -> Emulated USB
++// Devices"). For Wii discs it switches the emulated portal on before boot and, once the core is
++// running, puts the .sky files of User/Skylanders/ on the portal.
++namespace PS4Skylanders
++{
++// Before BootCore: Wii disc -> emulated portal on, User/Skylanders/ created.
++void Enable(const BootParameters& boot);
++// Core::State::Running: places the figures (once per game start).
++void OnCoreRunning();
++// Core::State::Uninitialized: ready for the next game.
++void OnCoreStopped();
++}  // namespace PS4Skylanders
+diff --git a/Source/Core/DolphinNoGUI/PS4Skylanders.cpp b/Source/Core/DolphinNoGUI/PS4Skylanders.cpp
+new file mode 100644
+--- /dev/null
++++ b/Source/Core/DolphinNoGUI/PS4Skylanders.cpp
+@@ -0,0 +1,107 @@
++// Copyright 2026 Dolphin PS4 contributors
++// SPDX-License-Identifier: GPL-2.0-or-later
++
++#include "DolphinNoGUI/PS4Skylanders.h"
++
++#include <algorithm>
++#include <array>
++#include <memory>
++#include <string>
++#include <utility>
++#include <variant>
++#include <vector>
++
++#include "Common/CommonTypes.h"
++#include "Common/Config/Config.h"
++#include "Common/FileSearch.h"
++#include "Common/FileUtil.h"
++#include "Core/Boot/Boot.h"
++#include "Core/Config/MainSettings.h"
++// ADJUST: header of the upstream portal code. Search the repo for "class SkylanderPortal"; it is
++// Core/IOS/USB/Emulated/Skylander.h, or Core/IOS/USB/Emulated/Skylanders/Skylander.h in newer trees.
++#include "Core/IOS/USB/Emulated/Skylander.h"
++#include "Core/System.h"
++#include "DiscIO/Enums.h"
++#include "DiscIO/Volume.h"
++#include "DolphinNoGUI/Platform.h"
++
++namespace PS4Skylanders
++{
++namespace
++{
++constexpr size_t MAX_FIGURES = 8;               // the portal holds more; 8 is plenty for a start
++constexpr size_t SKY_FILE_SIZE = 0x40 * 0x10;  // a .sky file is 1 KiB (16 blocks of 64 bytes)
++
++bool s_enabled = false;
++bool s_loaded = false;
++
++std::string Folder()
++{
++  return File::GetUserPath(D_USER_IDX) + "Skylanders/";
++}
++
++// The only place that calls the upstream portal API: if the build stops here, adjust this
++// function to the current names (compare with DolphinQt/Config/SkylanderPortalWindow.cpp,
++// LoadSkylanderPath()).
++bool PlaceFigure(const std::string& path)
++{
++  auto file = std::make_unique<File::IOFile>(path, "r+b");
++  if (!*file)
++    return false;
++  std::array<u8, SKY_FILE_SIZE> data{};
++  if (!file->ReadBytes(data.data(), data.size()))
++    return false;
++  auto& portal = Core::System::GetInstance().GetSkylanderPortal();
++  portal.LoadSkylander(data.data(), std::move(file));
++  return true;
++}
++}  // namespace
++
++void Enable(const BootParameters& boot)
++{
++  s_enabled = false;
++  s_loaded = false;
++  if (!std::holds_alternative<BootParameters::Disc>(boot.parameters))
++    return;
++  const auto& disc = std::get<BootParameters::Disc>(boot.parameters);
++  if (!disc.volume || disc.volume->GetVolumeType() != DiscIO::Platform::WiiDisc)
++    return;
++
++  File::CreateFullPath(Folder());
++  Config::SetBase(Config::MAIN_EMULATE_SKYLANDER_PORTAL, true);
++  s_enabled = true;
++  Platform::BootTrace("skylanders: emulated portal on");
++}
++
++void OnCoreRunning()
++{
++  if (!s_enabled || s_loaded)
++    return;
++  s_loaded = true;
++
++  std::vector<std::string> files = Common::DoFileSearch({Folder()}, {".sky"});
++  std::sort(files.begin(), files.end());
++  size_t placed = 0;
++  for (const std::string& path : files)
++  {
++    if (placed >= MAX_FIGURES)
++      break;
++    if (PlaceFigure(path))
++    {
++      ++placed;
++      Platform::BootTrace(("skylanders: placed " + path).c_str());
++    }
++    else
++    {
++      Platform::BootTrace(("skylanders: could not read " + path).c_str());
++    }
++  }
++  Platform::BootTrace(("skylanders: " + std::to_string(placed) + " figure(s) on the portal").c_str());
++}
++
++void OnCoreStopped()
++{
++  s_enabled = false;
++  s_loaded = false;
++}
++}  // namespace PS4Skylanders
