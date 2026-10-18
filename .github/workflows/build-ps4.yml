@@ -74,7 +74,7 @@ jobs:
           tar -xf /tmp/mesa.tar.xz -C ~/dolphinps4-build/src/mesa --strip-components=1
           cd ~/dolphinps4-build/src/mesa && git init -q && git add -A >/dev/null && git -c user.name=ci -c user.email=ci@ci commit -qm base
           git apply "$GITHUB_WORKSPACE/patches/mesa-ps4.patch"
-          cd "$GITHUB_WORKSPACE"
+          cd "$GITHUB_WORKSPACE" && git clone --depth 1 https://gitlab.freedesktop.org/mesa/drm.git ~/dolphinps4-build/src/libdrm
           scripts/build-mesa.sh setup
 
       - name: Configurar e compilar o Dolphin
