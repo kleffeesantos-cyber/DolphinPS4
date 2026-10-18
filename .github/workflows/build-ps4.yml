@@ -40,7 +40,7 @@ jobs:
       - name: Instalar OpenOrbis (PacBrew)
         run: |
           sudo mkdir -p /var/lib/pacman
-          printf '\n[pacbrew]\nSigLevel = Optional TrustAll\nServer = http://pacbrew.mydedibox.fr/packages/\n' | sudo tee -a /etc/pacman.conf
+          printf '\n[pacbrew]\nSigLevel = Optional TrustAll\nServer = https://pacman.mydedibox.fr/pacbrew/packages/\n' | sudo tee -a /etc/pacman.conf
           sudo pacman -Sy --noconfirm
           sudo pacman -S --noconfirm ps4-openorbis ps4-openorbis-portlibs
           ls /opt/pacbrew/ps4/openorbis
