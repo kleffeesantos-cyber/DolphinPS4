@@ -47,6 +47,7 @@ jobs:
 
       - name: Sysroot (libc++ e runtime)
         run: |
+          find toolchain scripts -type f -exec chmod +x {} + && toolchain/build-libcxx.sh
           toolchain/build-libcxx.sh
           toolchain/build-runtime.sh
 
