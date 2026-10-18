@@ -39,7 +39,7 @@ jobs:
 
       - name: Meson recente (o Mesa pede 1.4 ou mais)
         run: |
-          sudo python3 -m pip install --break-system-packages --upgrade "meson>=1.4" mako pyyaml
+          sudo python3 -m pip install --break-system-packages --upgrade "meson>=1.4" mako
           hash -r
           meson --version
 
