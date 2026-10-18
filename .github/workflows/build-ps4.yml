@@ -22,12 +22,12 @@ jobs:
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
           df -h /
 
-      - name: Instalar ferramentas (clang 21, cmake, ninja, meson...)
+      - name: Instalar ferramentas (clang 21, cmake, ninja...)
         run: |
           sudo apt-get update
           sudo apt-get install -y pacman-package-manager makepkg libarchive-tools \
-            build-essential autoconf libtool cmake ninja-build git curl wget xz-utils \
-            python3 python3-pip python3-venv python3-pil glslang-tools meson \
+            build-essential autoconf libtool nasm cmake ninja-build git curl wget xz-utils \
+            python3 python3-pip python3-venv python3-pil glslang-tools \
             lsb-release software-properties-common gnupg
           wget -q https://apt.llvm.org/llvm.sh
           chmod +x llvm.sh
@@ -36,6 +36,12 @@ jobs:
             [ -x "/usr/bin/$t-21" ] && sudo ln -sf "/usr/bin/$t-21" "/usr/local/bin/$t"
           done
           clang --version
+
+      - name: Meson recente (o Mesa pede 1.4 ou mais)
+        run: |
+          sudo python3 -m pip install --break-system-packages --upgrade "meson>=1.4" mako pyyaml
+          hash -r
+          meson --version
 
       - name: Instalar OpenOrbis (PacBrew)
         run: |
@@ -47,7 +53,7 @@ jobs:
 
       - name: Sysroot (libc++ e runtime)
         run: |
-          find toolchain scripts -type f -exec chmod +x {} + && toolchain/build-libcxx.sh
+          find toolchain scripts -type f -exec chmod +x {} +
           toolchain/build-libcxx.sh
           toolchain/build-runtime.sh
 
