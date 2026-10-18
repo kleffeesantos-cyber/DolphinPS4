@@ -1,0 +1,85 @@
+name: Build Dolphin PS4 (com portal Skylanders)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Versão mostrada em Settings > About (formato NN.NN)"
+        default: "04.16"
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    env:
+      OPENORBIS: /opt/pacbrew/ps4/openorbis
+      DOLPHIN_PS4_VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Liberar espaço em disco
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - name: Instalar ferramentas (clang 21, cmake, ninja, meson...)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pacman-package-manager makepkg libarchive-tools \
+            build-essential autoconf libtool cmake ninja-build git curl wget xz-utils \
+            python3 python3-pip python3-venv python3-pil glslang-tools meson \
+            lsb-release software-properties-common gnupg
+          wget -q https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 21 all
+          for t in clang clang++ lld ld.lld llvm-ar llvm-ranlib llvm-strip llvm-objcopy; do
+            [ -x "/usr/bin/$t-21" ] && sudo ln -sf "/usr/bin/$t-21" "/usr/local/bin/$t"
+          done
+          clang --version
+
+      - name: Instalar OpenOrbis (PacBrew)
+        run: |
+          sudo mkdir -p /var/lib/pacman
+          printf '\n[pacbrew]\nSigLevel = Optional TrustAll\nServer = http://pacbrew.mydedibox.fr/packages/\n' | sudo tee -a /etc/pacman.conf
+          sudo pacman -Sy --noconfirm
+          sudo pacman -S --noconfirm ps4-openorbis ps4-openorbis-portlibs
+          ls /opt/pacbrew/ps4/openorbis
+
+      - name: Sysroot (libc++ e runtime)
+        run: |
+          toolchain/build-libcxx.sh
+          toolchain/build-runtime.sh
+
+      - name: Código do Dolphin + patches (inclui o do portal)
+        run: |
+          mkdir -p ~/dolphinps4-build/src
+          git clone https://github.com/dolphin-emu/dolphin ~/dolphinps4-build/src/dolphin
+          cd ~/dolphinps4-build/src/dolphin
+          git checkout 771fb154059c5812d6a715a23226249cc42877a2
+          git submodule update --init --recursive
+          git apply "$GITHUB_WORKSPACE/patches/dolphin-ps4.patch"
+          git apply "$GITHUB_WORKSPACE/patches/skylanders-etapa1.patch"
+
+      - name: Mesa 26.0.8 + patch
+        run: |
+          mkdir -p ~/dolphinps4-build/src/mesa
+          curl -fL https://archive.mesa3d.org/mesa-26.0.8.tar.xz -o /tmp/mesa.tar.xz
+          tar -xf /tmp/mesa.tar.xz -C ~/dolphinps4-build/src/mesa --strip-components=1
+          cd ~/dolphinps4-build/src/mesa
+          git apply "$GITHUB_WORKSPACE/patches/mesa-ps4.patch"
+          cd "$GITHUB_WORKSPACE"
+          scripts/build-mesa.sh setup
+
+      - name: Configurar e compilar o Dolphin
+        run: |
+          scripts/configure-dolphin.sh
+          scripts/build-dolphin.sh
+
+      - name: Gerar o pacote .pkg
+        run: scripts/package-dolphin.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DolphinPS4-skylanders-pkg
+          path: /home/runner/dolphinps4-build/out/*.pkg
+          if-no-files-found: error
