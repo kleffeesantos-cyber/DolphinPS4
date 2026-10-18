@@ -76,7 +76,7 @@ diff --git a/Source/Core/DolphinNoGUI/PS4Skylanders.cpp b/Source/Core/DolphinNoG
 new file mode 100644
 --- /dev/null
 +++ b/Source/Core/DolphinNoGUI/PS4Skylanders.cpp
-@@ -0,0 +1,107 @@
+@@ -0,0 +1,102 @@
 +// Copyright 2026 Dolphin PS4 contributors
 +// SPDX-License-Identifier: GPL-2.0-or-later
 +
@@ -96,9 +96,8 @@ new file mode 100644
 +#include "Common/FileUtil.h"
 +#include "Core/Boot/Boot.h"
 +#include "Core/Config/MainSettings.h"
-+// ADJUST: header of the upstream portal code. Search the repo for "class SkylanderPortal"; it is
-+// Core/IOS/USB/Emulated/Skylander.h, or Core/IOS/USB/Emulated/Skylanders/Skylander.h in newer trees.
-+#include "Core/IOS/USB/Emulated/Skylander.h"
++#include "Core/IOS/USB/Emulated/Skylanders/Skylander.h"
++#include "Core/IOS/USB/Emulated/Skylanders/SkylanderFigure.h"
 +#include "Core/System.h"
 +#include "DiscIO/Enums.h"
 +#include "DiscIO/Volume.h"
@@ -109,7 +108,6 @@ new file mode 100644
 +namespace
 +{
 +constexpr size_t MAX_FIGURES = 8;               // the portal holds more; 8 is plenty for a start
-+constexpr size_t SKY_FILE_SIZE = 0x40 * 0x10;  // a .sky file is 1 KiB (16 blocks of 64 bytes)
 +
 +bool s_enabled = false;
 +bool s_loaded = false;
@@ -120,19 +118,16 @@ new file mode 100644
 +}
 +
 +// The only place that calls the upstream portal API: if the build stops here, adjust this
-+// function to the current names (compare with DolphinQt/Config/SkylanderPortalWindow.cpp,
-+// LoadSkylanderPath()).
++// function to the current names (compare with DolphinQt/SkylanderPortal/SkylanderPortalWindow.cpp,
++// LoadSkyfilePath()).
 +bool PlaceFigure(const std::string& path)
 +{
-+  auto file = std::make_unique<File::IOFile>(path, "r+b");
-+  if (!*file)
-+    return false;
-+  std::array<u8, SKY_FILE_SIZE> data{};
-+  if (!file->ReadBytes(data.data(), data.size()))
-+    return false;
++  // The figure object must outlive its time on the portal, so it is deliberately never freed
++  // (at most MAX_FIGURES small objects per game start).
++  auto* figure = new IOS::HLE::USB::SkylanderFigure(path);
 +  auto& portal = Core::System::GetInstance().GetSkylanderPortal();
-+  portal.LoadSkylander(data.data(), std::move(file));
-+  return true;
++  const u8 slot = portal.LoadSkylander(*figure);
++  return slot != 0xFF;
 +}
 +}  // namespace
 +
